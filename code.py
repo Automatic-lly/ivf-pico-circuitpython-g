@@ -28,7 +28,7 @@ PULSE_MS  = 1       # key down time for joystick taps
 
 ALTERNATE_DIAGONAL    = True
 SIMULTANEOUS_DIAGONAL = False
-HOLD_MODE = True     # True = hold while active; False = fast tap mode
+HOLD_MODE = False     # True = hold while active; False = fast tap mode
 
 # Encoder performance
 ENCODER_BACKEND = "rotaryio"   # "rotaryio" (realtime) or "gpio" (fallback)

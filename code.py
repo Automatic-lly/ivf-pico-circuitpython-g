@@ -6,13 +6,11 @@ import time
 import board
 import busio
 import usb_hid
-import digitalio
 import rotaryio
-
-from adafruit_hid.keyboard import Keyboard
-from adafruit_hid.keycode import Keycode
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
+from adafruit_hid.keyboard import Keyboard
+from adafruit_hid.keycode import Keycode
 
 # =========================
 # TUNABLE PARAMETERS
@@ -20,18 +18,14 @@ from adafruit_ads1x15.analog_in import AnalogIn
 CENTER_MIN = 350
 CENTER_MAX = 650
 
-# Joystick performance / feel
-LOOP_MS   = 1
-REPEAT_MS = 1
-PULSE_MS  = 1
+LOOP_MS = 1  # main loop cadence (ms)
 
-ALTERNATE_DIAGONAL    = True
-SIMULTANEOUS_DIAGONAL = False
-HOLD_MODE = False   # True = hold, False = fast tap
+# Joystick fast-tap parameters
+PULSE_MS = 1  # how long key stays pressed (ms)
 
-# Encoder performance
-ENCODER_PULSE_MS     = 4   # key down time per tap
-ENCODER_BURST_SPACING_MS = 1  # spacing between taps in a burst
+# Encoder fast tap
+ENCODER_PULSE_MS = 4
+ENCODER_BURST_SPACING_MS = 1
 
 # ADS1115 address
 ADS_ADDR = 0x48
@@ -70,78 +64,33 @@ def to_0_1023(chan):
     return chan.value // 32
 
 def press(label):
-    try: kbd.press(keycode_from_label(label))
-    except ValueError: pass
+    try:
+        kbd.press(keycode_from_label(label))
+    except ValueError:
+        pass
 
 def release(label):
-    try: kbd.release(keycode_from_label(label))
-    except ValueError: pass
+    try:
+        kbd.release(keycode_from_label(label))
+    except ValueError:
+        pass
 
 # =========================
-# Joystick engine
+# Joystick engine (fast tap)
 # =========================
 labels1 = ('w', 'a', 's', 'd')
 labels2 = ('DOWN', 'UP', 'RIGHT', 'LEFT')
 
-joy1_hold = {k: False for k in labels1}
-joy2_hold = {k: False for k in labels2}
+release_due = {}
 
-is_down1     = {k: False for k in labels1}
-release_due1 = {k: 0.0   for k in labels1}
-next_due1    = {k: 0.0   for k in labels1}
-diag_toggle1 = False
-
-is_down2     = {k: False for k in labels2}
-release_due2 = {k: 0.0   for k in labels2}
-next_due2    = {k: 0.0   for k in labels2}
-diag_toggle2 = False
-
-def handle_hold(joy_state, want, order):
-    for k in order:
-        cur, nxt = joy_state[k], want[k]
-        if nxt and not cur:
-            press(k); joy_state[k] = True
-        elif cur and not nxt:
-            release(k); joy_state[k] = False
-
-def schedule_tap_set(active, now_ms, is_down, next_due, release_due, diag_toggle):
-    if len(active) == 2 and ALTERNATE_DIAGONAL and not SIMULTANEOUS_DIAGONAL:
-        k = active[0] if diag_toggle else active[1]
-        if now_ms >= next_due[k] and not is_down[k]:
-            press(k); is_down[k] = True
+def handle_joystick_fasttap(want, labels, now_ms):
+    for k in labels:
+        if want[k]:
+            press(k)
             release_due[k] = now_ms + PULSE_MS
-            next_due[k]    = now_ms + REPEAT_MS
-        other = active[1] if diag_toggle else active[0]
-        if next_due[other] < now_ms:
-            next_due[other] = now_ms + REPEAT_MS * 0.5
-        return not diag_toggle
-
-    if len(active) == 2 and SIMULTANEOUS_DIAGONAL:
-        k1, k2 = active
-        if now_ms >= min(next_due[k1], next_due[k2]):
-            if not is_down[k1]:
-                press(k1); is_down[k1] = True; release_due[k1] = now_ms + PULSE_MS
-            if not is_down[k2]:
-                press(k2); is_down[k2] = True; release_due[k2] = now_ms + PULSE_MS
-            next_due[k1] = now_ms + REPEAT_MS
-            next_due[k2] = now_ms + REPEAT_MS
-        return diag_toggle
-
-    for k in active:
-        if now_ms >= next_due[k] and not is_down[k]:
-            press(k); is_down[k] = True
-            release_due[k] = now_ms + PULSE_MS
-            next_due[k]    = now_ms + REPEAT_MS
-
-    for k in next_due:
-        if k not in active:
-            next_due[k] = 0.0
-    return diag_toggle
-
-def process_releases(now_ms, is_down, release_due):
-    for k in release_due:
-        if is_down[k] and now_ms >= release_due[k]:
-            release(k); is_down[k] = False
+        if k in release_due and now_ms >= release_due[k]:
+            release(k)
+            release_due[k] = now_ms + 999999  # disable until next tap
 
 # =========================
 # Encoders (Realtime Edge→Tap)
@@ -168,7 +117,6 @@ ENC_KEYS = [
     ('2', '3'),
 ]
 
-# Create rotaryio encoders
 enc_objs = []
 enc_last = []
 for (clk, dt) in ENC_PINS:
@@ -176,7 +124,6 @@ for (clk, dt) in ENC_PINS:
     enc_objs.append(enc)
     enc_last.append(enc.position)
 
-# Fast tap scheduler for encoders
 enc_labels = set(sum(([cw, ccw] for cw, ccw in ENC_KEYS), []))
 enc_is_down     = {lbl: False for lbl in enc_labels}
 enc_release_due = {lbl: 0.0   for lbl in enc_labels}
@@ -217,7 +164,7 @@ def handle_encoders(now):
 # =========================
 # Main loop
 # =========================
-print("HELLO CIRCUITPY READY (ADS1115 HID + REALTIME ENCODERS)")
+print("HELLO CIRCUITPY READY (ADS1115 HID + REALTIME ENCODERS + FASTTAP JOYSTICKS)")
 
 while True:
     try:
@@ -238,20 +185,11 @@ while True:
             'LEFT':  (j2x > CENTER_MAX),
         }
 
-        if HOLD_MODE:
-            handle_hold(joy1_hold, want1, ('w','a','s','d'))
-            handle_hold(joy2_hold, want2, ('DOWN','UP','RIGHT','LEFT'))
-        else:
-            now = time.monotonic() * 1000.0
-            active1 = [k for k in ('w','a','s','d') if want1[k]]
-            active2 = [k for k in ('DOWN','UP','RIGHT','LEFT') if want2[k]]
-            diag_toggle1 = schedule_tap_set(active1, now, is_down1, next_due1, release_due1, diag_toggle1)
-            diag_toggle2 = schedule_tap_set(active2, now, is_down2, next_due2, release_due2, diag_toggle2)
-            process_releases(now, is_down1, release_due1)
-            process_releases(now, is_down2, release_due2)
+        now = time.monotonic() * 1000.0
+        handle_joystick_fasttap(want1, labels1, now)
+        handle_joystick_fasttap(want2, labels2, now)
 
         # ---- Encoders ----
-        now = time.monotonic() * 1000.0
         handle_encoders(now)
         process_encoder_releases(now)
 

@@ -1,0 +1,4 @@
+# CircuitPython Libraries used in this project
+adafruit_ads1x15 (version: unknown)
+adafruit_bus_device (version: unknown)
+adafruit_hid (version: unknown)

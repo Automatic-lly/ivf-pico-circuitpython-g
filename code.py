@@ -1,60 +1,53 @@
 # CircuitPython - Raspberry Pi Pico (RP2040)
 # Two joysticks (4 axes) via ADS1115 -> HID Keyboard: WASD + Arrow keys
-# + 8 Rotary Encoders -> custom key taps (CW/CCW) with real-time response
+# + 8 Rotary Encoders -> realtime taps (1 edge = 1 key)
 
 import time
 import board
 import busio
 import usb_hid
 import digitalio
+import rotaryio
 
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keycode import Keycode
-
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
 
 # =========================
-# TUNABLE PARAMETERS (top)
+# TUNABLE PARAMETERS
 # =========================
-# Joystick thresholds (ADS -> 0..1023)
 CENTER_MIN = 350
 CENTER_MAX = 650
 
-# Joystick performance / feel (tap mode)
-LOOP_MS   = 1       # main loop cadence (lower = more responsive)
-REPEAT_MS = 1       # interval between tap starts while active (lower = faster)
-PULSE_MS  = 1       # key down time for joystick taps
+# Joystick performance / feel
+LOOP_MS   = 1
+REPEAT_MS = 1
+PULSE_MS  = 1
 
 ALTERNATE_DIAGONAL    = True
 SIMULTANEOUS_DIAGONAL = False
-HOLD_MODE = False     # True = hold while active; False = fast tap mode
+HOLD_MODE = False   # True = hold, False = fast tap
 
 # Encoder performance
-ENCODER_BACKEND = "rotaryio"   # "rotaryio" (realtime) or "gpio" (fallback)
-ENCODER_DETENT_STEPS = 4       # steps per physical detent (try 4 or 2)
-ENCODER_MULTIPLIER   = 50      # taps per detent
-ENCODER_PULSE_MS     = 4       # key down time per tap
-ENCODER_BURST_SPACING_MS = 1   # spacing between taps inside a detent burst
+ENCODER_PULSE_MS     = 4   # key down time per tap
+ENCODER_BURST_SPACING_MS = 1  # spacing between taps in a burst
 
-# ADS1115 address (ADDR->GND = 0x48)
+# ADS1115 address
 ADS_ADDR = 0x48
 
 # =========================
 # Hardware setup
 # =========================
-# I2C0 on Pico: SCL=GP1, SDA=GP0
-i2c = busio.I2C(board.GP1, board.GP0)
+i2c = busio.I2C(board.GP1, board.GP0)  # SCL=GP1, SDA=GP0
 ads = ADS.ADS1115(i2c, address=ADS_ADDR)
 ads.gain = 1
 
-# ADS channels: JOY1_Y=A0, JOY1_X=A1, JOY2_Y=A2, JOY2_X=A3
 joy1_y = AnalogIn(ads, ADS.P0)
 joy1_x = AnalogIn(ads, ADS.P1)
 joy2_y = AnalogIn(ads, ADS.P2)
 joy2_x = AnalogIn(ads, ADS.P3)
 
-# HID keyboard
 kbd = Keyboard(usb_hid.devices)
 
 # =========================
@@ -85,7 +78,7 @@ def release(label):
     except ValueError: pass
 
 # =========================
-# Joystick engine (unchanged)
+# Joystick engine
 # =========================
 labels1 = ('w', 'a', 's', 'd')
 labels2 = ('DOWN', 'UP', 'RIGHT', 'LEFT')
@@ -151,9 +144,8 @@ def process_releases(now_ms, is_down, release_due):
             release(k); is_down[k] = False
 
 # =========================
-# Encoders (REAL-TIME)
+# Encoders (Realtime Edge→Tap)
 # =========================
-# Pins (CLK, DT) – avoid GP0/GP1 (I2C)
 ENC_PINS = [
     (board.GP2,  board.GP3),   # Enc1
     (board.GP4,  board.GP5),   # Enc2
@@ -165,34 +157,40 @@ ENC_PINS = [
     (board.GP16, board.GP17),  # Enc8
 ]
 
-# (CW, CCW) per encoder
 ENC_KEYS = [
-    ('x', 'z'),   # 1
-    ('n', 'm'),   # 2
-    ('q', 'e'),   # 3
-    ('o', 'p'),   # 4
-    ('1', '0'),   # 5
-    ('1', '0'),   # 6
-    ('3', '2'),   # 7
-    ('5', '4'),   # 8
+    ('x', 'z'),
+    ('n', 'm'),
+    ('q', 'e'),
+    ('o', 'p'),
+    ('1', '0'),
+    ('1', '0'),
+    ('3', '2'),
+    ('5', '4'),
 ]
 
-# ---- Fast tap pipeline for encoders
+# Create rotaryio encoders
+enc_objs = []
+enc_last = []
+for (clk, dt) in ENC_PINS:
+    enc = rotaryio.IncrementalEncoder(clk, dt)
+    enc_objs.append(enc)
+    enc_last.append(enc.position)
+
+# Fast tap scheduler for encoders
 enc_labels = set(sum(([cw, ccw] for cw, ccw in ENC_KEYS), []))
 enc_is_down     = {lbl: False for lbl in enc_labels}
 enc_release_due = {lbl: 0.0   for lbl in enc_labels}
-enc_next_burst  = {lbl: 0.0   for lbl in enc_labels}  # spacing within a burst
+enc_next_burst  = {lbl: 0.0   for lbl in enc_labels}
 
 def schedule_encoder_tap(label, now_ms):
     if now_ms < enc_next_burst[label]:
-        return  # throttle inside burst
+        return
     if not enc_is_down[label]:
         press(label)
         enc_is_down[label]     = True
         enc_release_due[label] = now_ms + ENCODER_PULSE_MS
         enc_next_burst[label]  = now_ms + ENCODER_BURST_SPACING_MS
     else:
-        # force a clean re-tap if somehow still down
         release(label)
         press(label)
         enc_release_due[label] = now_ms + ENCODER_PULSE_MS
@@ -204,65 +202,17 @@ def process_encoder_releases(now_ms):
             release(lbl)
             enc_is_down[lbl] = False
 
-# ---- Backend A: rotaryio (realtime)
-_use_rotaryio = False
-try:
-    import rotaryio
-    if ENCODER_BACKEND.lower() == "rotaryio":
-        _use_rotaryio = True
-except Exception:
-    _use_rotaryio = False
-
-if _use_rotaryio:
-    # Create IncrementalEncoder objects
-    enc_objs = []
-    enc_last = []
-    for (clk, dt) in ENC_PINS:
-        enc = rotaryio.IncrementalEncoder(clk, dt)  # fast PIO/IRQ-backed
-        enc_objs.append(enc)
-        enc_last.append(enc.position)
-
-else:
-    # ---- Backend B: GPIO fallback (optimized Gray decoder)
-    # 4-bit transition -> delta lookup
-    _LUT = (
-        0, -1, +1, 0,
-       +1,  0,  0, -1,
-       -1,  0,  0, +1,
-        0, +1, -1, 0
-    )
-
-    class GPIOEnc:
-        __slots__ = ("clk", "dt", "last_encoded", "accum")
-        def __init__(self, clk_pin, dt_pin):
-            self.clk = digitalio.DigitalInOut(clk_pin)
-            self.clk.direction = digitalio.Direction.INPUT
-            self.clk.pull = digitalio.Pull.UP
-            self.dt  = digitalio.DigitalInOut(dt_pin)
-            self.dt.direction = digitalio.Direction.INPUT
-            self.dt.pull = digitalio.Pull.UP
-            self.last_encoded = (int(self.clk.value) << 1) | int(self.dt.value)
-            self.accum = 0  # accumulates +/- transitions
-
-        def step_delta(self):
-            msb = int(self.clk.value)
-            lsb = int(self.dt.value)
-            enc = (msb << 1) | lsb
-            idx = ((self.last_encoded & 0x3) << 2) | (enc & 0x3)
-            self.last_encoded = enc
-            d = _LUT[idx]
-            self.accum += d
-            # Return full detents as +/- counts
-            det = 0
-            while self.accum >= ENCODER_DETENT_STEPS:
-                self.accum -= ENCODER_DETENT_STEPS
-                det += 1
-            while self.accum <= -ENCODER_DETENT_STEPS:
-                self.accum += ENCODER_DETENT_STEPS
-                det -= 1
-            return det
-
-    gpio_encs = [GPIOEnc(clk, dt) for (clk, dt) in ENC_PINS]
+def handle_encoders(now):
+    for idx, enc in enumerate(enc_objs):
+        pos = enc.position
+        delta = pos - enc_last[idx]
+        if delta > 0:
+            for _ in range(delta):
+                schedule_encoder_tap(ENC_KEYS[idx][0], now)
+        elif delta < 0:
+            for _ in range(-delta):
+                schedule_encoder_tap(ENC_KEYS[idx][1], now)
+        enc_last[idx] = pos
 
 # =========================
 # Main loop
@@ -300,37 +250,9 @@ while True:
             process_releases(now, is_down1, release_due1)
             process_releases(now, is_down2, release_due2)
 
-        # ---- Encoders (REAL-TIME) ----
+        # ---- Encoders ----
         now = time.monotonic() * 1000.0
-
-        if _use_rotaryio:
-            # Use .position deltas; convert to detents; fire bursts immediately
-            for idx, enc in enumerate(enc_objs):
-                pos = enc.position
-                delta = pos - enc_last[idx]
-                if delta:
-                    enc_last[idx] = pos
-                    # Convert raw edges to detents (rotaryio is typically 1 per edge)
-                    # We aggregate so 'delta' edges -> +/-detents using ENCODER_DETENT_STEPS
-                    if delta > 0:
-                        det = delta // ENCODER_DETENT_STEPS
-                        for _ in range(det * ENCODER_MULTIPLIER):
-                            schedule_encoder_tap(ENC_KEYS[idx][0], now)
-                    elif delta < 0:
-                        det = (-delta) // ENCODER_DETENT_STEPS
-                        for _ in range(det * ENCODER_MULTIPLIER):
-                            schedule_encoder_tap(ENC_KEYS[idx][1], now)
-        else:
-            # GPIO fallback (optimized)
-            for idx, ge in enumerate(gpio_encs):
-                det = ge.step_delta()  # +/- detents
-                if det > 0:
-                    for _ in range(det * ENCODER_MULTIPLIER):
-                        schedule_encoder_tap(ENC_KEYS[idx][0], now)
-                elif det < 0:
-                    for _ in range((-det) * ENCODER_MULTIPLIER):
-                        schedule_encoder_tap(ENC_KEYS[idx][1], now)
-
+        handle_encoders(now)
         process_encoder_releases(now)
 
     except Exception as e:

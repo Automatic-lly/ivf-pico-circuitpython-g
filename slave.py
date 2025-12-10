@@ -7,6 +7,8 @@ import board
 import busio
 import rotaryio
 
+from slave_keymap import dual_packet, joystick_packet, single_packet
+
 UART_BAUD = 115200
 UART_TX_PIN = board.GP0
 
@@ -65,7 +67,7 @@ def main():
         # Joystick encoders
         for axis, encoder in joystick.items():
             def make_cb(axis_code):
-                return lambda direction: send_packet(f"J{axis_code}{direction}")
+                return lambda direction: send_packet(joystick_packet(axis_code, direction))
 
             process_encoder(encoder, last_positions, f"joy_{axis}", make_cb(axis))
 
@@ -73,12 +75,12 @@ def main():
         for idx, enc_map in dual_encoders.items():
             for axis, encoder in enc_map.items():
                 def make_cb(e_idx, axis_code):
-                    return lambda direction: send_packet(f"D{e_idx} {axis_code} {direction}")
+                    return lambda direction: send_packet(dual_packet(e_idx, axis_code, direction))
 
                 process_encoder(encoder, last_positions, f"dual{idx}_{axis}", make_cb(idx, axis))
 
         # Single-axis encoder
-        process_encoder(single, last_positions, "single", lambda direction: send_packet(f"S{direction}"))
+        process_encoder(single, last_positions, "single", lambda direction: send_packet(single_packet(direction)))
 
         # Optional tiny yield to keep loop responsive without blocking
         _ = now_ms()

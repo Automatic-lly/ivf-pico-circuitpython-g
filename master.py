@@ -8,7 +8,15 @@ import busio
 import rotaryio
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
-from adafruit_hid.keycode import Keycode
+
+from master_keymap import (
+    LOCAL_DUAL_KEYS,
+    LOCAL_JOY_KEYS,
+    LOCAL_SINGLE_KEYS,
+    REMOTE_DUAL_KEYS,
+    REMOTE_JOY_KEYS,
+    REMOTE_SINGLE_KEYS,
+)
 
 # ----------------------------- Configuration -----------------------------
 UART_BAUD = 115200
@@ -30,57 +38,6 @@ DUAL0_PINS = {
 
 # Single-axis encoder (local)
 SINGLE_PINS = (board.GP12, board.GP13)
-
-# HID key mappings
-LOCAL_JOY_KEYS = {
-    "x+": Keycode.RIGHT_ARROW,
-    "x-": Keycode.LEFT_ARROW,
-    "y+": Keycode.UP_ARROW,
-    "y-": Keycode.DOWN_ARROW,
-    "twist+": Keycode.TAB,
-    "twist-": Keycode.SHIFT,
-}
-
-LOCAL_DUAL_KEYS = {
-    "x+": Keycode.ONE,
-    "x-": Keycode.TWO,
-    "y+": Keycode.THREE,
-    "y-": Keycode.FOUR,
-}
-
-LOCAL_SINGLE_KEYS = {
-    "+": Keycode.FIVE,
-    "-": Keycode.SIX,
-}
-
-REMOTE_JOY_KEYS = {
-    "x+": Keycode.D,
-    "x-": Keycode.A,
-    "y+": Keycode.W,
-    "y-": Keycode.S,
-    "twist+": Keycode.Q,
-    "twist-": Keycode.E,
-}
-
-REMOTE_DUAL_KEYS = {
-    0: {
-        "x+": Keycode.Z,
-        "x-": Keycode.X,
-        "y+": Keycode.C,
-        "y-": Keycode.V,
-    },
-    1: {
-        "x+": Keycode.B,
-        "x-": Keycode.N,
-        "y+": Keycode.M,
-        "y-": Keycode.COMMA,
-    },
-}
-
-REMOTE_SINGLE_KEYS = {
-    "+": Keycode.SEVEN,
-    "-": Keycode.EIGHT,
-}
 
 # ------------------------------ Utilities -------------------------------
 

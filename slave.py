@@ -61,7 +61,22 @@ def main():
     last_positions = {}
 
     def send_packet(packet: str):
-        uart.write((packet + "\n").encode("ascii"))
+        """Reliably transmit a full packet over UART.
+
+        ``busio.UART.write`` may return ``None`` or a partial byte count if the
+        hardware buffer is temporarily full. Retry until the entire payload has
+        been accepted to avoid silently dropping encoder events.
+        """
+
+        payload = (packet + "\n").encode("ascii")
+        view = memoryview(payload)
+        while view:
+            written = uart.write(view)
+            if written is None:
+                written = 0
+            view = view[written:]
+            if view:
+                time.sleep(0.001)
 
     while True:
         # Joystick encoders

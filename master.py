@@ -20,24 +20,24 @@ from master_keymap import (
 
 # ----------------------------- Configuration -----------------------------
 UART_BAUD = 115200
-UART_RX_PIN = board.GP21
+UART_RX_PIN = board.GP1
 RELEASE_MS = 1
 
 # Joystick encoders (local)
 JOY_PINS = {
-    "x": (board.GP2, board.GP3),
-    "y": (board.GP4, board.GP5),
-    "twist": (board.GP6, board.GP7),
+    "x": (board.GP12, board.GP13),
+    "y": (board.GP14, board.GP15),
+    "twist": (board.GP9, board.GP10),
 }
 
 # Dual-axis encoder (local, index 0)
 DUAL0_PINS = {
-    "x": (board.GP8, board.GP9),
-    "y": (board.GP10, board.GP11),
+    "x": (board.GP2, board.GP3),
+    "y": (board.GP4, board.GP5),
 }
 
 # Single-axis encoder (local)
-SINGLE_PINS = (board.GP12, board.GP13)
+SINGLE_PINS = (board.GP20, board.GP21)
 
 # ------------------------------ Utilities -------------------------------
 

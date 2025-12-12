@@ -48,15 +48,38 @@ def process_encoder(enc: rotaryio.IncrementalEncoder, last_positions: dict, name
     last_positions[name] = pos
 
 
+def make_encoder(pin_a, pin_b, label):
+    """Create an encoder, ensuring its pins are sequential GPIO numbers."""
+
+    def pin_id(pin):
+        return getattr(pin, "id", getattr(pin, "number", None))
+
+    a_id = pin_id(pin_a)
+    b_id = pin_id(pin_b)
+    first, second = pin_a, pin_b
+
+    if a_id is not None and b_id is not None:
+        if a_id > b_id:
+            a_id, b_id = b_id, a_id
+            first, second = pin_b, pin_a
+        if b_id - a_id != 1:
+            raise RuntimeError(f"{label} pins must be sequential GPIO pins (got {pin_a} and {pin_b})")
+
+    try:
+        return rotaryio.IncrementalEncoder(first, second)
+    except RuntimeError as err:
+        raise RuntimeError(f"Failed to init {label} encoder with pins {pin_a} and {pin_b}: {err}") from err
+
+
 def main():
     uart = busio.UART(tx=UART_TX_PIN, rx=None, baudrate=UART_BAUD, timeout=0)
 
-    joystick = {axis: rotaryio.IncrementalEncoder(pins[0], pins[1]) for axis, pins in JOY_PINS.items()}
+    joystick = {axis: make_encoder(pins[0], pins[1], f"joystick {axis}") for axis, pins in JOY_PINS.items()}
     dual_encoders = {
-        idx: {axis: rotaryio.IncrementalEncoder(*pins) for axis, pins in axis_map.items()}
+        idx: {axis: make_encoder(*pins, label=f"dual {idx} axis {axis}") for axis, pins in axis_map.items()}
         for idx, axis_map in DUAL_PINS.items()
     }
-    single = rotaryio.IncrementalEncoder(*SINGLE_PINS)
+    single = make_encoder(*SINGLE_PINS, label="single-axis")
 
     last_positions = {}
 

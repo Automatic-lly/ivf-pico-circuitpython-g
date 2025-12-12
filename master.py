@@ -176,14 +176,35 @@ pressed_until = {}
 uart = busio.UART(tx=None, rx=UART_RX_PIN, baudrate=UART_BAUD, timeout=0, receiver_buffer_size=128)
 rx_buffer = bytearray()
 
-joystick_encoders = {
-    name: rotaryio.IncrementalEncoder(pins[0], pins[1]) for name, pins in JOY_PINS.items()
-}
+def make_encoder(pin_a, pin_b, label):
+    """Create an encoder, ensuring the two pins are sequential GPIO numbers."""
+
+    def pin_id(pin):
+        return getattr(pin, "id", getattr(pin, "number", None))
+
+    a_id = pin_id(pin_a)
+    b_id = pin_id(pin_b)
+    first, second = pin_a, pin_b
+
+    if a_id is not None and b_id is not None:
+        if a_id > b_id:
+            a_id, b_id = b_id, a_id
+            first, second = pin_b, pin_a
+        if b_id - a_id != 1:
+            raise RuntimeError(f"{label} pins must be sequential GPIO pins (got {pin_a} and {pin_b})")
+
+    try:
+        return rotaryio.IncrementalEncoder(first, second)
+    except RuntimeError as err:
+        raise RuntimeError(f"Failed to init {label} encoder with pins {pin_a} and {pin_b}: {err}") from err
+
+
+joystick_encoders = {name: make_encoder(pins[0], pins[1], f"joystick {name}") for name, pins in JOY_PINS.items()}
 dual_encoders = {
-    "x": rotaryio.IncrementalEncoder(*DUAL0_PINS["x"]),
-    "y": rotaryio.IncrementalEncoder(*DUAL0_PINS["y"]),
+    "x": make_encoder(*DUAL0_PINS["x"], label="dual-axis X"),
+    "y": make_encoder(*DUAL0_PINS["y"], label="dual-axis Y"),
 }
-single_encoder = rotaryio.IncrementalEncoder(*SINGLE_PINS)
+single_encoder = make_encoder(*SINGLE_PINS, label="single-axis")
 
 last_positions = {}
 
